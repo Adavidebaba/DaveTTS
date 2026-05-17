@@ -1,0 +1,21 @@
+# Credenziali e configurazioni locali
+.env
+*.local
+
+# Dati generati e temporanei (audiobook e chunk)
+data/
+*.mp3
+*.wav
+
+# Cache di Python e ambienti virtuali
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# File di sistema
+.DS_Store
+Thumbs.db

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="DaveTTS — Trasforma i tuoi libri in audiolibri MP3 con intelligenza artificiale">
+    <title>DaveTTS — Generatore di Audiolibri</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-content">
+            <div class="logo">
+                <span class="logo-icon">🏛️</span>
+                <h1>DaveTTS</h1>
+            </div>
+            <p class="tagline">Trasforma i tuoi libri in audiolibri</p>
+        </div>
+    </header>
+
+    <!-- Step Indicator -->
+    <nav class="step-indicator" id="stepIndicator">
+        <div class="step active" data-step="1">
+            <span class="step-number">1</span>
+            <span class="step-label">Carica</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" data-step="2">
+            <span class="step-number">2</span>
+            <span class="step-label">Configura</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" data-step="3">
+            <span class="step-number">3</span>
+            <span class="step-label">Genera</span>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+        <!-- STEP 1: Upload -->
+        <section class="step-panel active" id="step1Panel">
+            <div class="panel-header">
+                <h2>📄 Carica il tuo libro</h2>
+                <p>Trascina un file .txt o clicca per selezionarlo</p>
+            </div>
+
+            <div class="dropzone" id="dropzone">
+                <div class="dropzone-content">
+                    <span class="dropzone-icon">📁</span>
+                    <p class="dropzone-text">Trascina qui il tuo file .txt</p>
+                    <p class="dropzone-hint">oppure clicca per selezionare</p>
+                    <input type="file" id="fileInput" accept=".txt" hidden>
+                </div>
+            </div>
+
+            <div class="file-info hidden" id="fileInfo">
+                <div class="info-card">
+                    <div class="info-row">
+                        <span class="info-label">📄 File</span>
+                        <span class="info-value" id="fileName">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">📏 Lunghezza</span>
+                        <span class="info-value" id="fileLength">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">🧩 Chunk stimati</span>
+                        <span class="info-value" id="fileChunks">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">💰 Stima Costo</span>
+                        <span class="info-value" id="fileCost">—</span>
+                    </div>
+                </div>
+
+                <div class="preview-box" id="previewBox">
+                    <h3>Anteprima</h3>
+                    <div class="preview-text" id="previewText"></div>
+                </div>
+            </div>
+
+            <div class="step-actions">
+                <button class="btn btn-primary hidden" id="btnToStep2" disabled>
+                    Avanti — Configura voce →
+                </button>
+            </div>
+        </section>
+
+        <!-- STEP 2: Configure Voice -->
+        <section class="step-panel" id="step2Panel">
+            <div class="panel-header">
+                <h2>🎙️ Scegli la voce</h2>
+                <p>Seleziona la voce, la lingua e la qualità audio</p>
+            </div>
+
+            <div class="voice-grid" id="voiceGrid">
+                <!-- Populated by JS -->
+            </div>
+
+            <div class="config-section">
+                <h3>🌍 Lingua</h3>
+                <div class="select-wrapper">
+                    <select id="languageSelect" class="select-input">
+                        <option value="it" selected>🇮🇹 Italiano</option>
+                        <option value="en">🇬🇧 English</option>
+                        <option value="es">🇪🇸 Español</option>
+                        <option value="fr">🇫🇷 Français</option>
+                        <option value="de">🇩🇪 Deutsch</option>
+                        <option value="pt">🇵🇹 Português</option>
+                        <option value="ru">🇷🇺 Русский</option>
+                        <option value="ja">🇯🇵 日本語</option>
+                        <option value="ko">🇰🇷 한국어</option>
+                        <option value="zh">🇨🇳 中文</option>
+                        <option value="auto">🌐 Auto-detect</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h3>🎧 Qualità Audio</h3>
+                <div class="format-grid" id="formatGrid">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <div class="step-actions">
+                <button class="btn btn-secondary" id="btnBackToStep1">← Indietro</button>
+                <button class="btn btn-primary" id="btnToStep3">Genera Audiolibro →</button>
+            </div>
+        </section>
+
+        <!-- STEP 3: Generate & Download -->
+        <section class="step-panel" id="step3Panel">
+            <div class="panel-header">
+                <h2>🎧 Generazione in corso</h2>
+                <p id="generationStatus">Preparazione...</p>
+            </div>
+
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-stats">
+                    <span id="progressPercent">0%</span>
+                    <span id="progressChunks">0 / 0 chunk</span>
+                </div>
+                <div class="progress-state" id="progressState"></div>
+            </div>
+
+            <!-- Error display -->
+            <div class="error-box hidden" id="errorBox">
+                <span class="error-icon">⚠️</span>
+                <p id="errorMessage"></p>
+                <div class="error-actions">
+                    <button class="btn btn-primary hidden" id="btnResume">
+                        ▶️ Riprendi generazione
+                    </button>
+                    <button class="btn btn-secondary" id="btnRetry">Riprova</button>
+                </div>
+            </div>
+
+            <!-- Result (shown when complete) -->
+            <div class="result-container hidden" id="resultContainer">
+                <div class="result-icon">✅</div>
+                <h3>Audiolibro pronto!</h3>
+
+                <div class="audio-player-wrapper">
+                    <audio controls id="audioPlayer" class="audio-player">
+                        Il tuo browser non supporta l'elemento audio.
+                    </audio>
+                </div>
+
+                <div class="result-actions">
+                    <button class="btn btn-primary btn-large" id="btnDownload">
+                        ⬇️ Scarica MP3
+                    </button>
+                    <button class="btn btn-secondary" id="btnNewBook">
+                        📄 Nuovo libro
+                    </button>
+                </div>
+            </div>
+
+            <div class="step-actions">
+                <button class="btn btn-secondary hidden" id="btnBackToStep2">← Indietro</button>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <p>DaveTTS — Powered by xAI TTS</p>
+    </footer>
+
+    <!-- API Key Warning Modal -->
+    <div class="modal-overlay hidden" id="apiKeyWarning">
+        <div class="modal-card">
+            <span class="modal-icon">🔑</span>
+            <h3>API Key non configurata</h3>
+            <p>Per generare audiolibri devi configurare la tua chiave API xAI nel file <code>.env</code> sul server.</p>
+            <code class="modal-code">XAI_API_KEY=xai-la-tua-chiave</code>
+            <button class="btn btn-primary" id="btnCloseModal">Ho capito</button>
+        </div>
+    </div>
+
+    <script src="/js/upload-handler.js"></script>
+    <script src="/js/generation-controller.js"></script>
+    <script src="/js/audio-player.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

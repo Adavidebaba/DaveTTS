@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  davetts:
+    build: .
+    container_name: davetts
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Persistenza dati: upload e output audio
+      - /volume1/docker/davetts/data:/app/data
+    labels:
+      # Traefik — Routing automatico con SSL
+      - "traefik.enable=true"
+      - "traefik.http.routers.davetts.rule=Host(`davetts.adavide.com`)"
+      - "traefik.http.routers.davetts.entrypoints=websecure"
+      - "traefik.http.routers.davetts.tls.certresolver=cloudflare"
+      - "traefik.http.services.davetts.loadbalancer.server.port=4300"

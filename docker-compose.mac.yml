@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  davetts:
+    build: .
+    container_name: davetts_local
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Percorso relativo per il Mac locale
+      - ./data:/app/data
+    ports:
+      # Espone la porta direttamente per testarlo sul Mac senza Traefik
+      - "4300:4300"
