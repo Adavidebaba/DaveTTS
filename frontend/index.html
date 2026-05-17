@@ -95,15 +95,22 @@
         <!-- STEP 2: Configure Voice -->
         <section class="step-panel" id="step2Panel">
             <div class="panel-header">
-                <h2>🎙️ Scegli la voce</h2>
-                <p>Seleziona la voce, la lingua e la qualità audio</p>
+                <h2>🎙️ Configura la voce</h2>
+                <p>Seleziona il provider, la voce e le opzioni audio</p>
+            </div>
+
+            <div class="config-section">
+                <h3>🤖 Provider TTS</h3>
+                <div class="provider-grid" id="providerGrid">
+                    <!-- Populated by JS -->
+                </div>
             </div>
 
             <div class="voice-grid" id="voiceGrid">
                 <!-- Populated by JS -->
             </div>
 
-            <div class="config-section">
+            <div class="config-section" id="languageSection">
                 <h3>🌍 Lingua</h3>
                 <div class="select-wrapper">
                     <select id="languageSelect" class="select-input">
@@ -195,7 +202,7 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-        <p>DaveTTS — Powered by xAI TTS</p>
+        <p>DaveTTS — Powered by xAI & Google Gemini</p>
     </footer>
 
     <!-- API Key Warning Modal -->
@@ -203,8 +210,8 @@
         <div class="modal-card">
             <span class="modal-icon">🔑</span>
             <h3>API Key non configurata</h3>
-            <p>Per generare audiolibri devi configurare la tua chiave API xAI nel file <code>.env</code> sul server.</p>
-            <code class="modal-code">XAI_API_KEY=xai-la-tua-chiave</code>
+            <p>Per generare audiolibri devi configurare almeno una chiave API nel file <code>.env</code> sul server.</p>
+            <code class="modal-code">GEMINI_API_KEY=la-tua-chiave</code>
             <button class="btn btn-primary" id="btnCloseModal">Ho capito</button>
         </div>
     </div>

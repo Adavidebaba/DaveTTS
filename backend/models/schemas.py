@@ -29,11 +29,15 @@ class OutputFormatRequest(BaseModel):
 class GenerateRequest(BaseModel):
     """Richiesta di generazione audiolibro."""
     file_id: str = Field(..., description="ID del file caricato")
-    voice_id: str = Field(default="leo", description="Voce da usare")
+    voice_id: str = Field(default="Kore", description="Voce da usare")
     language: str = Field(default="it", description="Codice lingua BCP-47")
     output_format: str = Field(
         default="standard",
         description="Preset formato: standard, high, low"
+    )
+    provider: str = Field(
+        default="gemini",
+        description="Provider TTS: gemini o xai"
     )
 
 
@@ -70,6 +74,8 @@ class ConfigResponse(BaseModel):
     voices: dict
     output_formats: dict
     price_per_1m_chars: float
+    provider: str = "gemini"
+    providers: dict = {}
 
 
 class JobListItem(BaseModel):

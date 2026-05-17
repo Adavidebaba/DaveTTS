@@ -382,6 +382,57 @@ body::before {
     font-size: 0.8rem;
 }
 
+/* --- Provider Grid --- */
+.provider-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.provider-card {
+    background: var(--bg-glass);
+    border: 2px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+}
+
+.provider-card:hover:not(.disabled) {
+    border-color: var(--accent-primary);
+    background: var(--bg-glass-hover);
+    transform: translateY(-2px);
+}
+
+.provider-card.selected {
+    border-color: var(--accent-primary);
+    background: rgba(139, 92, 246, 0.1);
+    box-shadow: var(--shadow-glow);
+}
+
+.provider-card.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.provider-card-icon {
+    font-size: 1.8rem;
+    margin-bottom: 0.4rem;
+}
+
+.provider-card-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.provider-card-status {
+    color: var(--warning);
+    font-size: 0.75rem;
+    margin-top: 0.3rem;
+}
+
 /* --- Config Sections --- */
 .config-section {
     margin-bottom: 1.5rem;

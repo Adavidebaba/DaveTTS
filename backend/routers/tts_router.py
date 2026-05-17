@@ -7,11 +7,10 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from backend.config import AppConfig, VoiceCatalog, OutputFormatCatalog
+from backend.config import AppConfig, OutputFormatCatalog
+from backend.voice_catalog import get_voice_catalog
 from backend.managers.text_splitter import TextSplitter
-from backend.managers.tts_client import (
-    XaiTtsClient, TtsApiError, CreditExhaustedError,
-)
+from backend.managers.tts_provider import create_tts_client, get_error_classes
 from backend.managers.audio_merger import AudioMerger
 from backend.managers.chunk_storage import ChunkStorage
 from backend.managers.job_manager import JobManager, Job
@@ -23,7 +22,6 @@ router = APIRouter(prefix="/api", tags=["tts"])
 # Istanze condivise (singleton a livello di modulo)
 job_manager = JobManager()
 text_splitter = TextSplitter(AppConfig.MAX_CHUNK_SIZE)
-tts_client = XaiTtsClient()
 audio_merger = AudioMerger(AppConfig.PAUSE_BETWEEN_CHUNKS_MS)
 chunk_storage = ChunkStorage()
 
@@ -42,16 +40,19 @@ async def start_generation(
     Avvia la generazione dell'audiolibro in background.
     Ritorna immediatamente il job_id per il polling dello stato.
     """
-    # Validazione API key
-    config_errors = AppConfig.validate()
+    provider = request.provider
+
+    # Validazione API key per il provider scelto
+    config_errors = AppConfig.validate(provider)
     if config_errors:
         raise HTTPException(status_code=500, detail=config_errors[0])
 
     # Validazione voce
-    if not VoiceCatalog.is_valid(request.voice_id):
+    voice_catalog = get_voice_catalog(provider)
+    if not voice_catalog.is_valid(request.voice_id):
         raise HTTPException(
             status_code=400,
-            detail=f"Voce '{request.voice_id}' non valida",
+            detail=f"Voce '{request.voice_id}' non valida per {provider}",
         )
 
     # Verifica file esiste
@@ -72,6 +73,7 @@ async def start_generation(
         voice_id=request.voice_id,
         language=request.language,
         output_format_id=request.output_format,
+        provider=provider,
     )
 
     return {
@@ -105,8 +107,8 @@ async def resume_generation(
             detail="Dati di generazione mancanti, avvia un nuovo job",
         )
 
-    # Validazione API key (potrebbe essere cambiata)
-    config_errors = AppConfig.validate()
+    # Validazione API key per il provider del job
+    config_errors = AppConfig.validate(job.provider)
     if config_errors:
         raise HTTPException(status_code=500, detail=config_errors[0])
 
@@ -130,8 +132,11 @@ async def _run_generation_pipeline(
     voice_id: str,
     language: str,
     output_format_id: str,
+    provider: str,
 ):
     """Pipeline completa: split → TTS → merge."""
+    tts_error_cls, credit_error_cls = get_error_classes(provider)
+
     try:
         # FASE 1: Split testo
         job_manager.update_state(job.job_id, JobState.SPLITTING)
@@ -141,46 +146,51 @@ async def _run_generation_pipeline(
 
         # Salva parametri per eventuale ripresa
         job_manager.set_generation_params(
-            job.job_id, voice_id, language, output_format_id, chunks,
+            job.job_id, voice_id, language,
+            output_format_id, chunks, provider,
         )
 
         logger.info(
-            "Job %s: testo diviso in %d chunk",
-            job.job_id, len(chunks),
+            "Job %s [%s]: testo diviso in %d chunk",
+            job.job_id, provider, len(chunks),
         )
 
         # FASE 2: Generazione TTS con salvataggio progressivo
         job_manager.update_state(job.job_id, JobState.GENERATING)
-        output_format = OutputFormatCatalog.get(output_format_id)
-        format_params = {
-            "codec": output_format["codec"],
-            "sample_rate": output_format["sample_rate"],
-            "bit_rate": output_format["bit_rate"],
-        }
+        tts_client = create_tts_client(provider)
 
         def on_chunk_done(index: int, audio_bytes: bytes):
             chunk_storage.save_chunk(job.job_id, index, audio_bytes)
             job_manager.mark_chunk_done(job.job_id, index)
             job_manager.increment_progress(job.job_id)
 
-        await tts_client.synthesize_batch(
-            chunks=chunks,
-            voice_id=voice_id,
-            language=language,
-            output_format=format_params,
-            on_chunk_done=on_chunk_done,
-        )
+        # Parametri comuni + specifici per xAI
+        batch_kwargs = {
+            "chunks": chunks,
+            "voice_id": voice_id,
+            "on_chunk_done": on_chunk_done,
+        }
+        if provider == "xai":
+            output_format = OutputFormatCatalog.get(output_format_id)
+            batch_kwargs["language"] = language
+            batch_kwargs["output_format"] = {
+                "codec": output_format["codec"],
+                "sample_rate": output_format["sample_rate"],
+                "bit_rate": output_format["bit_rate"],
+            }
+
+        await tts_client.synthesize_batch(**batch_kwargs)
 
         # FASE 3: Merge audio da disco
         await _merge_and_complete(job)
 
-    except CreditExhaustedError as exc:
+    except credit_error_cls:
         job_manager.set_paused(
             job.job_id,
-            "Credito API esaurito. Ricarica il credito e "
+            "Credito/quota API esaurito. Ricarica e "
             "premi 'Riprendi' per continuare.",
         )
-    except TtsApiError as exc:
+    except tts_error_cls as exc:
         job_manager.set_error(
             job.job_id,
             f"Errore API TTS: {exc.message}",
@@ -194,6 +204,9 @@ async def _run_generation_pipeline(
 
 async def _run_resume_pipeline(job: Job):
     """Pipeline di ripresa: genera solo chunk mancanti → merge."""
+    provider = job.provider
+    tts_error_cls, credit_error_cls = get_error_classes(provider)
+
     try:
         # Identifica chunk mancanti
         completed = chunk_storage.get_completed_indices(job.job_id)
@@ -208,47 +221,49 @@ async def _run_resume_pipeline(job: Job):
 
         missing_count = total - len(completed)
         logger.info(
-            "Job %s: ripresa con %d/%d chunk da generare",
-            job.job_id, missing_count, total,
+            "Job %s [%s]: ripresa con %d/%d chunk da generare",
+            job.job_id, provider, missing_count, total,
         )
 
         if missing_count == 0:
-            # Tutti i chunk ci sono, procedi al merge
             await _merge_and_complete(job)
             return
 
         # Genera solo i chunk mancanti
-        output_format = OutputFormatCatalog.get(job.output_format_id)
-        format_params = {
-            "codec": output_format["codec"],
-            "sample_rate": output_format["sample_rate"],
-            "bit_rate": output_format["bit_rate"],
-        }
+        tts_client = create_tts_client(provider)
 
         def on_chunk_done(index: int, audio_bytes: bytes):
             chunk_storage.save_chunk(job.job_id, index, audio_bytes)
             job_manager.mark_chunk_done(job.job_id, index)
             job_manager.increment_progress(job.job_id)
 
-        await tts_client.synthesize_batch(
-            chunks=job.text_chunks,
-            voice_id=job.voice_id,
-            language=job.language,
-            output_format=format_params,
-            on_chunk_done=on_chunk_done,
-            skip_indices=completed,
-        )
+        batch_kwargs = {
+            "chunks": job.text_chunks,
+            "voice_id": job.voice_id,
+            "on_chunk_done": on_chunk_done,
+            "skip_indices": completed,
+        }
+        if provider == "xai":
+            output_format = OutputFormatCatalog.get(job.output_format_id)
+            batch_kwargs["language"] = job.language
+            batch_kwargs["output_format"] = {
+                "codec": output_format["codec"],
+                "sample_rate": output_format["sample_rate"],
+                "bit_rate": output_format["bit_rate"],
+            }
+
+        await tts_client.synthesize_batch(**batch_kwargs)
 
         # Merge finale
         await _merge_and_complete(job)
 
-    except CreditExhaustedError:
+    except credit_error_cls:
         job_manager.set_paused(
             job.job_id,
-            "Credito API ancora insufficiente. "
+            "Credito/quota API ancora insufficiente. "
             "Ricarica e riprova.",
         )
-    except TtsApiError as exc:
+    except tts_error_cls as exc:
         job_manager.set_error(
             job.job_id,
             f"Errore API TTS: {exc.message}",

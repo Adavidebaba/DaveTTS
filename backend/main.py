@@ -61,11 +61,15 @@ async def serve_index() -> FileResponse:
 @app.on_event("startup")
 async def startup_event():
     """Log di avvio con stato configurazione."""
-    errors = AppConfig.validate()
+    provider = AppConfig.TTS_PROVIDER
+    errors = AppConfig.validate(provider)
     if errors:
         logger.warning("⚠️  Problemi di configurazione: %s", errors)
     else:
-        logger.info("✅ API key xAI configurata correttamente")
+        logger.info(
+            "✅ Provider TTS '%s' configurato correttamente",
+            provider,
+        )
 
     logger.info(
         "🏛️  DaveTTS avviato su http://%s:%d",

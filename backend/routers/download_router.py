@@ -2,10 +2,11 @@
 Router per il download dei file audio generati.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from backend.config import AppConfig, VoiceCatalog, OutputFormatCatalog
+from backend.config import AppConfig, OutputFormatCatalog, SUPPORTED_PROVIDERS
+from backend.voice_catalog import get_voice_catalog, XaiVoiceCatalog, GeminiVoiceCatalog
 from backend.routers.tts_router import get_job_manager
 from backend.models.schemas import JobState, ConfigResponse
 
@@ -46,11 +47,28 @@ async def download_audiobook(job_id: str) -> FileResponse:
 
 
 @router.get("/config", response_model=ConfigResponse)
-async def get_config() -> ConfigResponse:
+async def get_config(
+    provider: str = Query(default=None, description="Provider TTS specifico"),
+) -> ConfigResponse:
     """Ritorna la configurazione corrente (voci, formati, stato API key)."""
+    active_provider = provider or AppConfig.TTS_PROVIDER
+    if active_provider not in SUPPORTED_PROVIDERS:
+        active_provider = AppConfig.TTS_PROVIDER
+    voice_catalog = get_voice_catalog(active_provider)
     return ConfigResponse(
-        api_key_configured=len(AppConfig.validate()) == 0,
-        voices=VoiceCatalog.get_all(),
+        api_key_configured=len(AppConfig.validate(active_provider)) == 0,
+        voices=voice_catalog.get_all(),
         output_formats=OutputFormatCatalog.get_all(),
-        price_per_1m_chars=AppConfig.PRICE_PER_1M_CHARS,
+        price_per_1m_chars=AppConfig.get_price_per_1m_chars(active_provider),
+        provider=active_provider,
+        providers={
+            "xai": {
+                "label": XaiVoiceCatalog.PROVIDER_LABEL,
+                "configured": len(AppConfig.validate("xai")) == 0,
+            },
+            "gemini": {
+                "label": GeminiVoiceCatalog.PROVIDER_LABEL,
+                "configured": len(AppConfig.validate("gemini")) == 0,
+            },
+        },
     )

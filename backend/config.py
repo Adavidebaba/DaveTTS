@@ -9,45 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
-class VoiceCatalog:
-    """Catalogo voci disponibili dall'API xAI TTS."""
-
-    VOICES = {
-        "leo": {
-            "name": "Leo",
-            "description": "Autorevole e forte",
-            "icon": "🦁",
-        },
-        "eve": {
-            "name": "Eve",
-            "description": "Energica e vivace",
-            "icon": "✨",
-        },
-        "ara": {
-            "name": "Ara",
-            "description": "Calda e amichevole",
-            "icon": "🌸",
-        },
-        "rex": {
-            "name": "Rex",
-            "description": "Sicuro e chiaro",
-            "icon": "👑",
-        },
-        "sal": {
-            "name": "Sal",
-            "description": "Morbido e bilanciato",
-            "icon": "🎵",
-        },
-    }
-
-    @classmethod
-    def is_valid(cls, voice_id: str) -> bool:
-        return voice_id.lower() in cls.VOICES
-
-    @classmethod
-    def get_all(cls) -> dict:
-        return cls.VOICES
+# Provider TTS supportati
+SUPPORTED_PROVIDERS = ("xai", "gemini")
 
 
 class OutputFormatCatalog:
@@ -86,16 +49,26 @@ class OutputFormatCatalog:
 class AppConfig:
     """Configurazione principale dell'applicazione."""
 
+    # Provider TTS attivo (default: gemini)
+    TTS_PROVIDER: str = os.getenv("TTS_PROVIDER", "gemini")
+
     # API xAI
     XAI_API_KEY: str = os.getenv("XAI_API_KEY", "")
     XAI_TTS_URL: str = "https://api.x.ai/v1/tts"
-    PRICE_PER_1M_CHARS: float = 15.00  # Costo per 1 milione di caratteri in USD
+
+    # API Google Gemini
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_TTS_MODEL: str = "gemini-3.1-flash-tts-preview"
+
+    # Costi per 1M caratteri in USD
+    PRICE_PER_1M_CHARS_XAI: float = 15.00
+    PRICE_PER_1M_CHARS_GEMINI: float = 0.00  # Free tier Gemini
 
     # Limiti testo
-    MAX_CHUNK_SIZE: int = 10_000  # Margine sicurezza vs limite API 15.000
+    MAX_CHUNK_SIZE: int = 10_000  # Margine sicurezza vs limite API
     MAX_UPLOAD_SIZE_MB: int = 10
 
-    # Parallelismo API (limite xAI: 100 sessioni, 50 RPS)
+    # Parallelismo API
     MAX_CONCURRENT_REQUESTS: int = int(
         os.getenv("MAX_CONCURRENT_REQUESTS", "20")
     )
@@ -116,6 +89,14 @@ class AppConfig:
     PORT: int = 4300
 
     @classmethod
+    def get_price_per_1m_chars(cls, provider: str | None = None) -> float:
+        """Ritorna il costo per 1M caratteri del provider specificato."""
+        prov = provider or cls.TTS_PROVIDER
+        if prov == "gemini":
+            return cls.PRICE_PER_1M_CHARS_GEMINI
+        return cls.PRICE_PER_1M_CHARS_XAI
+
+    @classmethod
     def ensure_directories(cls):
         """Crea le directory necessarie se non esistono."""
         cls.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -124,11 +105,26 @@ class AppConfig:
         cls.CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def validate(cls) -> list[str]:
-        """Valida la configurazione. Ritorna lista errori."""
+    def validate(cls, provider: str | None = None) -> list[str]:
+        """Valida la configurazione per il provider specificato."""
+        prov = provider or cls.TTS_PROVIDER
         errors = []
-        if not cls.XAI_API_KEY:
-            errors.append("XAI_API_KEY non configurata")
-        elif not cls.XAI_API_KEY.startswith("xai-"):
-            errors.append("XAI_API_KEY deve iniziare con 'xai-'")
+
+        if prov not in SUPPORTED_PROVIDERS:
+            errors.append(
+                f"TTS_PROVIDER '{prov}' non valido. "
+                f"Usa: {SUPPORTED_PROVIDERS}"
+            )
+            return errors
+
+        if prov == "xai":
+            if not cls.XAI_API_KEY:
+                errors.append("XAI_API_KEY non configurata")
+            elif not cls.XAI_API_KEY.startswith("xai-"):
+                errors.append("XAI_API_KEY deve iniziare con 'xai-'")
+
+        elif prov == "gemini":
+            if not cls.GEMINI_API_KEY:
+                errors.append("GEMINI_API_KEY non configurata")
+
         return errors

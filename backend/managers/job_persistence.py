@@ -98,6 +98,7 @@ class JobPersistence:
             "language": job.language,
             "output_format_id": job.output_format_id,
             "text_chunks": job.text_chunks,
+            "provider": job.provider,
         }
 
     @staticmethod
@@ -121,4 +122,5 @@ class JobPersistence:
             "language": data.get("language", ""),
             "output_format_id": data.get("output_format_id", ""),
             "text_chunks": data.get("text_chunks", []),
+            "provider": data.get("provider", "gemini"),
         }

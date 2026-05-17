@@ -23,7 +23,7 @@ class GenerationController {
         this.POLL_INTERVAL_MS = 2000;
     }
 
-    async startGeneration(fileId, voiceId, language, outputFormat) {
+    async startGeneration(fileId, voiceId, language, outputFormat, provider) {
         this._resetUI();
 
         try {
@@ -35,6 +35,7 @@ class GenerationController {
                     voice_id: voiceId,
                     language: language,
                     output_format: outputFormat,
+                    provider: provider || 'gemini',
                 }),
             });
 

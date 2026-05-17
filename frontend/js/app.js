@@ -11,8 +11,9 @@ class App {
 
         // Stato
         this.currentStep = 1;
-        this.selectedVoice = 'leo';
+        this.selectedVoice = null;
         this.selectedFormat = 'standard';
+        this.selectedProvider = 'gemini';
         this.config = null;
 
         this._init();
@@ -20,6 +21,7 @@ class App {
 
     async _init() {
         await this._loadConfig();
+        this._buildProviderGrid();
         this._buildVoiceGrid();
         this._buildFormatGrid();
         this._bindNavigation();
@@ -30,8 +32,12 @@ class App {
         try {
             const response = await fetch('/api/config');
             this.config = await response.json();
+            this.selectedProvider = this.config.provider || 'gemini';
 
-            // Mostra warning se API key non configurata
+            // Imposta voce default per il provider
+            this._setDefaultVoice();
+
+            // Mostra warning se nessun provider configurato
             if (!this.config.api_key_configured) {
                 document.getElementById('apiKeyWarning').classList.remove('hidden');
             }
@@ -40,15 +46,95 @@ class App {
         }
     }
 
+    _setDefaultVoice() {
+        const voices = this.config?.voices || {};
+        const voiceIds = Object.keys(voices);
+        if (voiceIds.length > 0) {
+            // Seleziona la prima voce come default
+            this.selectedVoice = voiceIds[0];
+        }
+    }
+
+    _buildProviderGrid() {
+        const grid = document.getElementById('providerGrid');
+        const providers = this.config?.providers || {};
+
+        grid.innerHTML = '';
+
+        const providerIcons = { xai: '🤖', gemini: '💎' };
+
+        for (const [providerId, providerInfo] of Object.entries(providers)) {
+            const card = document.createElement('div');
+            const isSelected = providerId === this.selectedProvider;
+            const isConfigured = providerInfo.configured;
+
+            card.className = `provider-card${isSelected ? ' selected' : ''}${!isConfigured ? ' disabled' : ''}`;
+            card.dataset.providerId = providerId;
+            card.innerHTML = `
+                <div class="provider-card-icon">${providerIcons[providerId] || '🔧'}</div>
+                <div class="provider-card-name">${providerInfo.label}</div>
+                ${!isConfigured ? '<div class="provider-card-status">⚠️ Non configurato</div>' : ''}
+            `;
+
+            if (isConfigured) {
+                card.addEventListener('click', () => this._selectProvider(providerId));
+            }
+
+            grid.appendChild(card);
+        }
+    }
+
+    async _selectProvider(providerId) {
+        if (providerId === this.selectedProvider) return;
+
+        this.selectedProvider = providerId;
+
+        // Aggiorna stile card provider
+        document.querySelectorAll('.provider-card').forEach(card => {
+            card.classList.toggle('selected', card.dataset.providerId === providerId);
+        });
+
+        // Carica voci del nuovo provider
+        await this._loadProviderVoices(providerId);
+    }
+
+    async _loadProviderVoices(providerId) {
+        try {
+            const response = await fetch(`/api/config?provider=${providerId}`);
+            const providerConfig = await response.json();
+
+            // Aggiorna voci e costo nella config locale
+            this.config.voices = providerConfig.voices;
+            this.config.price_per_1m_chars = providerConfig.price_per_1m_chars;
+
+            // Seleziona la prima voce del nuovo provider
+            this._setDefaultVoice();
+
+            // Ricostruisci la griglia voci
+            this._buildVoiceGrid();
+
+            // Mostra/nascondi sezione lingua
+            this._updateLanguageVisibility();
+        } catch (error) {
+            console.error('Errore caricamento voci provider:', error);
+        }
+    }
+
+    _updateLanguageVisibility() {
+        const langSection = document.getElementById('languageSection');
+        if (langSection) {
+            // Gemini fa auto-detect, la lingua serve solo per xAI
+            if (this.selectedProvider === 'gemini') {
+                langSection.classList.add('hidden');
+            } else {
+                langSection.classList.remove('hidden');
+            }
+        }
+    }
+
     _buildVoiceGrid() {
         const grid = document.getElementById('voiceGrid');
-        const voices = this.config?.voices || {
-            leo: { name: 'Leo', description: 'Autorevole e forte', icon: '🦁' },
-            eve: { name: 'Eve', description: 'Energica e vivace', icon: '✨' },
-            ara: { name: 'Ara', description: 'Calda e amichevole', icon: '🌸' },
-            rex: { name: 'Rex', description: 'Sicuro e chiaro', icon: '👑' },
-            sal: { name: 'Sal', description: 'Morbido e bilanciato', icon: '🎵' },
-        };
+        const voices = this.config?.voices || {};
 
         grid.innerHTML = '';
 
@@ -104,6 +190,7 @@ class App {
         // Step 1 → Step 2
         document.getElementById('btnToStep2').addEventListener('click', () => {
             this._goToStep(2);
+            this._updateLanguageVisibility();
         });
 
         // Step 2 → Step 1
@@ -191,6 +278,7 @@ class App {
             this.selectedVoice,
             language,
             this.selectedFormat,
+            this.selectedProvider,
         );
     }
 
