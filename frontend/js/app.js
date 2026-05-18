@@ -212,6 +212,13 @@ class App {
             this._goToStep(2);
         });
 
+        // Stop generazione
+        document.getElementById('btnStopGeneration')?.addEventListener('click', () => {
+            this.generationController.cancelGeneration();
+            document.getElementById('btnStopGeneration').classList.add('hidden');
+            // La UI si aggiornerà al prossimo ciclo di polling
+        });
+
         // Nuovo libro
         document.getElementById('btnNewBook').addEventListener('click', () => {
             this._resetAll();
@@ -240,8 +247,15 @@ class App {
 
     _bindCallbacks() {
         // Quando upload completato
-        this.uploadHandler.onUploadSuccess = () => {
-            // Il bottone viene già abilitato dall'upload handler
+        this.uploadHandler.onUploadSuccess = (result) => {
+            const notice = document.getElementById('resumeNotice');
+            const text = document.getElementById('resumeText');
+            if (result.chunks_already_generated > 0) {
+                text.textContent = `${result.chunks_already_generated} / ${result.estimated_chunks}`;
+                notice.classList.remove('hidden');
+            } else {
+                notice.classList.add('hidden');
+            }
         };
 
         // Quando generazione completata
@@ -285,8 +299,8 @@ class App {
 
         this._goToStep(3);
 
-        // Nascondi bottone indietro durante la generazione
-        document.getElementById('btnBackToStep2').classList.add('hidden');
+        // Nascondi bottone indietro durante la generazione (gestito ora da controller)
+        // document.getElementById('btnBackToStep2').classList.add('hidden');
 
         await this.generationController.startGeneration(
             fileId,

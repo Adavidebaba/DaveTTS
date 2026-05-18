@@ -18,6 +18,8 @@ class JobState(str, Enum):
     PAUSED = "paused"
     ERROR = "error"
     REVIEW = "review"
+    CANCELLED = "cancelled"
+    WAITING_QUOTA = "waiting_quota"
 
 
 class OutputFormatRequest(BaseModel):
@@ -82,6 +84,7 @@ class UploadResponse(BaseModel):
     file_name: str
     text_length: int
     estimated_chunks: int
+    chunks_already_generated: int = 0
 
 
 class ConfigResponse(BaseModel):

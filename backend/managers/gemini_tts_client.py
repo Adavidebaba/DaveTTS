@@ -30,7 +30,9 @@ class GeminiTtsError(Exception):
 
 class GeminiCreditExhaustedError(GeminiTtsError):
     """Il credito/quota Gemini è esaurito."""
-    pass
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class GeminiTtsClient:
@@ -72,6 +74,7 @@ class GeminiTtsClient:
         max_concurrent: Optional[int] = None,
         on_chunk_done: Optional[Callable] = None,
         skip_indices: Optional[set[int]] = None,
+        check_cancelled: Optional[Callable[[], bool]] = None,
         **kwargs,
     ) -> list[Optional[bytes]]:
         """
@@ -98,9 +101,6 @@ class GeminiTtsClient:
                 )
                 return
 
-            if credit_error is not None:
-                return
-
             # Costruisci il prompt se presente
             if prompt_data:
                 formatted_text = self._format_prompt(text, prompt_data)
@@ -108,8 +108,12 @@ class GeminiTtsClient:
                 formatted_text = text
 
             async with semaphore:
-                # Piccolo ritardo per scaglionare le richieste
-                await asyncio.sleep(index * 0.5)
+                if credit_error is not None:
+                    return
+                
+                if check_cancelled and check_cancelled():
+                    return
+
                 logger.info(
                     "Gemini TTS chunk %d/%d (%d caratteri base)",
                     index + 1, len(chunks), len(text),
@@ -174,14 +178,20 @@ class GeminiTtsClient:
                 # Se è un errore di credito/budget permanente, interrompi subito senza retry
                 if "spending cap" in error_str.lower():
                     raise GeminiCreditExhaustedError(error_str)
-                
+
                 # Cerca un delay specifico richiesto da Google per i rate limit temporanei
                 import re
                 match = re.search(r'Please retry in ([0-9.]+)s', error_str)
+                retry_after_val = None
                 if match:
-                    wait_time = float(match.group(1)) + 2.0  # Aggiungi 2s di margine
+                    retry_after_val = float(match.group(1))
+                    wait_time = retry_after_val + 2.0  # Aggiungi 2s di margine
                 else:
                     wait_time = self.RETRY_BACKOFF_BASE ** (attempt + 1)
+
+                # Se superiamo il limite giornaliero (RPD), è un esaurimento quota
+                if "quota exceeded for metric: generativelanguage.googleapis.com/generate_requests_per_model_per_day" in error_str.lower():
+                    raise GeminiCreditExhaustedError(error_str, retry_after=retry_after_val)
                 
                 logger.warning(
                     "Errore Gemini TTS (tentativo %d/%d): %s. "

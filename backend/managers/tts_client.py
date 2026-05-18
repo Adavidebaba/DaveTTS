@@ -88,6 +88,7 @@ class XaiTtsClient:
         max_concurrent: Optional[int] = None,
         on_chunk_done: Optional[Callable] = None,
         skip_indices: Optional[set[int]] = None,
+        check_cancelled: Optional[Callable[[], bool]] = None,
     ) -> list[Optional[bytes]]:
         """
         Sintetizza più chunk in parallelo con concorrenza limitata.
@@ -111,11 +112,14 @@ class XaiTtsClient:
                 )
                 return
 
-            # Se il credito è esaurito, non tentare altri chunk
-            if credit_error is not None:
-                return
-
             async with semaphore:
+                # Se il credito è esaurito, non tentare altri chunk
+                if credit_error is not None:
+                    return
+
+                if check_cancelled and check_cancelled():
+                    return
+
                 logger.info(
                     "Generazione chunk %d/%d (%d caratteri)",
                     index + 1, len(chunks), len(text),

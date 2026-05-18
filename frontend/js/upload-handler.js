@@ -13,11 +13,13 @@ class UploadHandler {
         this.fileCost = document.getElementById('fileCost');
         this.previewText = document.getElementById('previewText');
         this.btnToStep2 = document.getElementById('btnToStep2');
+        this.existingFilesSelect = document.getElementById('existingFilesSelect');
 
         this.uploadedFileId = null;
         this.onUploadSuccess = null; // callback
 
         this._bindEvents();
+        this._loadExistingFiles();
     }
 
     _bindEvents() {
@@ -48,6 +50,67 @@ class UploadHandler {
             const file = event.dataTransfer.files[0];
             if (file) this._handleFile(file);
         });
+
+        // Selezione file esistente
+        if (this.existingFilesSelect) {
+            this.existingFilesSelect.addEventListener('change', (event) => {
+                const fileId = event.target.value;
+                if (fileId) {
+                    this._handleExistingFile(fileId);
+                } else {
+                    this.reset();
+                }
+            });
+        }
+    }
+
+    async _loadExistingFiles() {
+        if (!this.existingFilesSelect) return;
+        try {
+            const response = await fetch('/api/files');
+            if (!response.ok) return;
+            const files = await response.json();
+            
+            this.existingFilesSelect.innerHTML = '<option value="">-- Seleziona un file --</option>';
+            if (files.length === 0) {
+                this.existingFilesSelect.innerHTML = '<option value="">Nessun file precedente trovato</option>';
+                this.existingFilesSelect.disabled = true;
+                return;
+            }
+            
+            this.existingFilesSelect.disabled = false;
+            for (const f of files) {
+                const option = document.createElement('option');
+                option.value = f.file_id;
+                const sizeKb = Math.round(f.size_bytes / 1024);
+                option.textContent = `${f.title} (${sizeKb} KB)`;
+                this.existingFilesSelect.appendChild(option);
+            }
+        } catch (e) {
+            console.error('Errore caricamento file esistenti:', e);
+            this.existingFilesSelect.innerHTML = '<option value="">Errore nel caricamento</option>';
+        }
+    }
+
+    async _handleExistingFile(fileId) {
+        try {
+            this._showLoading();
+            const response = await fetch(`/api/file/${fileId}`);
+            if (!response.ok) throw new Error("Impossibile recuperare il file");
+            const result = await response.json();
+            
+            // Trova il titolo nel select per usarlo come nome
+            let displayName = `${fileId}.txt`;
+            const option = Array.from(this.existingFilesSelect.options).find(o => o.value === fileId);
+            if (option) displayName = option.textContent;
+
+            this._showFileInfo(result, displayName);
+            this.dropzone.querySelector('.dropzone-text').textContent = 'File recuperato!';
+        } catch (error) {
+            console.error('Errore recupero file:', error);
+            alert('Errore: ' + error.message);
+            this.reset();
+        }
     }
 
     async _handleFile(file) {
@@ -154,6 +217,7 @@ class UploadHandler {
         this.btnToStep2.classList.add('hidden');
         this.btnToStep2.disabled = true;
         this.fileInput.value = '';
+        if (this.existingFilesSelect) this.existingFilesSelect.value = '';
         this.dropzone.querySelector('.dropzone-text').textContent =
             'Trascina qui il tuo file .txt';
     }

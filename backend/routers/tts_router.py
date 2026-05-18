@@ -4,6 +4,7 @@ Gestisce avvio generazione asincrona in background.
 """
 
 import logging
+import hashlib
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
@@ -60,10 +61,35 @@ async def start_generation(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File non trovato")
 
-    # Crea job
+    # Il job_id ora coincide esattamente con il file_id come richiesto dall'utente
+    job_id = request.file_id
+
+    job = job_manager.get_job(job_id)
+
+    if job:
+        # Se il job esiste e sta ancora elaborando, non facciamo nulla e restituiamo l'id
+        if job.state in (JobState.PENDING, JobState.SPLITTING, JobState.GENERATING, JobState.MERGING, JobState.COMPLETED, JobState.REVIEW):
+            logger.info("Job %s già esistente in stato %s. Recupero.", job_id, job.state.value)
+            return {
+                "job_id": job.job_id,
+                "message": "Generazione recuperata",
+            }
+        
+        # Se il job esiste ma è in pausa/errore/cancellato, riprendiamolo automaticamente
+        if job.state in (JobState.PAUSED, JobState.ERROR, JobState.CANCELLED):
+            logger.info("Job %s esistente in stato %s. Ripresa automatica.", job_id, job.state.value)
+            if job_manager.try_set_generating(job_id):
+                background_tasks.add_task(_run_resume_pipeline, job=job)
+            return {
+                "job_id": job.job_id,
+                "message": "Generazione ripresa automaticamente",
+            }
+
+    # Crea nuovo job
     job = job_manager.create_job(
         file_name=file_path.stem,
         file_path=file_path,
+        job_id=job_id,
     )
 
     # Avvia generazione in background
@@ -115,8 +141,11 @@ async def resume_generation(
         raise HTTPException(status_code=500, detail=config_errors[0])
 
     # Reset stato per la ripresa
-    job.error_message = None
-    job_manager.update_state(job_id, JobState.GENERATING)
+    if not job_manager.try_set_generating(job_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Generazione già in corso.",
+        )
 
     background_tasks.add_task(
         _run_resume_pipeline,
@@ -127,6 +156,23 @@ async def resume_generation(
         "job_id": job.job_id,
         "message": "Generazione ripresa",
     }
+
+
+@router.post("/cancel/{job_id}")
+async def cancel_generation(job_id: str) -> dict:
+    """Interrompe una generazione in corso."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job non trovato")
+
+    if job.state in (JobState.PENDING, JobState.SPLITTING, JobState.GENERATING, JobState.MERGING):
+        job_manager.set_cancelled(job_id, "Generazione interrotta dall'utente.")
+        return {"message": "Generazione interrotta"}
+    
+    raise HTTPException(
+        status_code=400,
+        detail=f"Impossibile interrompere job in stato '{job.state.value}'",
+    )
 
 
 from fastapi.responses import FileResponse
@@ -189,11 +235,15 @@ async def _run_generation_pipeline(
             job_manager.mark_chunk_done(job.job_id, index)
             job_manager.increment_progress(job.job_id)
 
+        def check_cancelled() -> bool:
+            return job_manager.get_job(job.job_id).state == JobState.CANCELLED
+
         # Parametri comuni + specifici per xAI
         batch_kwargs = {
             "chunks": chunks,
             "voice_id": voice_id,
             "on_chunk_done": on_chunk_done,
+            "check_cancelled": check_cancelled,
         }
         if prompt_data:
             batch_kwargs["prompt_data"] = prompt_data
@@ -211,18 +261,31 @@ async def _run_generation_pipeline(
 
         await tts_client.synthesize_batch(**batch_kwargs)
 
+        if job_manager.get_job(job.job_id).state == JobState.CANCELLED:
+            logger.info("Job %s cancellato. Merge saltato.", job.job_id)
+            return
+
         if preview_only:
             job_manager.update_state(job.job_id, JobState.REVIEW)
         else:
             # FASE 3: Merge audio da disco
             await _merge_and_complete(job)
 
-    except credit_error_cls:
-        job_manager.set_paused(
-            job.job_id,
-            "Credito/quota API esaurito. Ricarica e "
-            "premi 'Riprendi' per continuare.",
-        )
+    except credit_error_cls as exc:
+        wait_seconds = getattr(exc, "retry_after", None)
+        if wait_seconds is not None:
+            from datetime import datetime, timedelta
+            resume_time = datetime.now() + timedelta(seconds=wait_seconds)
+            job_manager.set_waiting_quota(
+                job.job_id,
+                resume_time,
+                "Quota giornaliera esaurita. Ripresa automatica in attesa."
+            )
+        else:
+            job_manager.set_paused(
+                job.job_id,
+                "Credito/quota API esaurito. Ricarica e premi 'Riprendi' per continuare."
+            )
     except tts_error_cls as exc:
         job_manager.set_error(
             job.job_id,
@@ -270,11 +333,15 @@ async def _run_resume_pipeline(job: Job):
             job_manager.mark_chunk_done(job.job_id, index)
             job_manager.increment_progress(job.job_id)
 
+        def check_cancelled() -> bool:
+            return job_manager.get_job(job.job_id).state == JobState.CANCELLED
+
         batch_kwargs = {
             "chunks": job.text_chunks,
             "voice_id": job.voice_id,
             "on_chunk_done": on_chunk_done,
             "skip_indices": completed,
+            "check_cancelled": check_cancelled,
         }
         if job.prompt_data:
             batch_kwargs["prompt_data"] = job.prompt_data
@@ -289,15 +356,28 @@ async def _run_resume_pipeline(job: Job):
 
         await tts_client.synthesize_batch(**batch_kwargs)
 
+        if job_manager.get_job(job.job_id).state == JobState.CANCELLED:
+            logger.info("Job %s cancellato (ripresa). Merge saltato.", job.job_id)
+            return
+
         # Merge finale
         await _merge_and_complete(job)
 
-    except credit_error_cls:
-        job_manager.set_paused(
-            job.job_id,
-            "Credito/quota API ancora insufficiente. "
-            "Ricarica e riprova.",
-        )
+    except credit_error_cls as exc:
+        wait_seconds = getattr(exc, "retry_after", None)
+        if wait_seconds is not None:
+            from datetime import datetime, timedelta
+            resume_time = datetime.now() + timedelta(seconds=wait_seconds)
+            job_manager.set_waiting_quota(
+                job.job_id,
+                resume_time,
+                "Quota giornaliera esaurita. Ripresa automatica in attesa."
+            )
+        else:
+            job_manager.set_paused(
+                job.job_id,
+                "Credito/quota API ancora insufficiente. Ricarica e riprova."
+            )
     except tts_error_cls as exc:
         job_manager.set_error(
             job.job_id,
@@ -325,3 +405,28 @@ async def _merge_and_complete(job: Job):
 
     # Completato
     job_manager.set_completed(job.job_id, output_path)
+
+import asyncio
+from datetime import datetime
+
+async def _quota_watcher_loop():
+    """Background task che controlla se ci sono job in attesa di quota e li riavvia."""
+    while True:
+        try:
+            now = datetime.now()
+            jobs = job_manager.list_jobs()
+            for job_data in jobs:
+                if job_data["state"] == JobState.WAITING_QUOTA.value and job_data.get("resume_at"):
+                    resume_time = datetime.fromisoformat(job_data["resume_at"])
+                    if now >= resume_time:
+                        job_id = job_data["job_id"]
+                        logger.info("La quota per il job %s dovrebbe essere rinnovata. Ripresa automatica in corso...", job_id)
+                        if job_manager.try_set_generating(job_id):
+                            job = job_manager.get_job(job_id)
+                            if job:
+                                asyncio.create_task(_run_resume_pipeline(job))
+        except Exception as e:
+            logger.error("Errore nel quota_watcher_loop: %s", e)
+        
+        # Controlla ogni 5 minuti (300 secondi)
+        await asyncio.sleep(300)

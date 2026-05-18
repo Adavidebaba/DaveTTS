@@ -20,8 +20,8 @@ logger = logging.getLogger("davetts.jobs")
 class Job:
     """Rappresenta un singolo job di generazione."""
 
-    def __init__(self, file_name: str, file_path: Path):
-        self.job_id: str = uuid.uuid4().hex[:12]
+    def __init__(self, file_name: str, file_path: Path, job_id: str | None = None):
+        self.job_id: str = job_id or uuid.uuid4().hex[:12]
         self.file_name: str = file_name
         self.file_path: Path = file_path
         self.state: JobState = JobState.PENDING
@@ -41,11 +41,12 @@ class Job:
         self.text_chunks: list[str] = []
         self.provider: str = "gemini"
         self.prompt_data: dict | None = None
+        self.resume_at: datetime | None = None
 
     @property
     def is_resumable(self) -> bool:
-        """Un job è riprendibile se è paused/error con chunk parziali."""
-        if self.state not in (JobState.PAUSED, JobState.ERROR):
+        """Un job è riprendibile se è paused/error con chunk parziali o se in WAITING_QUOTA."""
+        if self.state not in (JobState.PAUSED, JobState.ERROR, JobState.CANCELLED, JobState.WAITING_QUOTA):
             return False
         return (
             len(self.chunks_done) > 0
@@ -64,6 +65,7 @@ class Job:
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat(),
             "is_resumable": self.is_resumable,
+            "resume_at": self.resume_at.isoformat() if self.resume_at else None,
         }
 
 
@@ -103,9 +105,13 @@ class JobManager:
 
             if fields["created_at"]:
                 try:
-                    job.created_at = datetime.fromisoformat(
-                        fields["created_at"],
-                    )
+                    job.created_at = datetime.fromisoformat(fields["created_at"])
+                except ValueError:
+                    pass
+
+            if fields.get("resume_at"):
+                try:
+                    job.resume_at = datetime.fromisoformat(fields["resume_at"])
                 except ValueError:
                     pass
 
@@ -117,16 +123,16 @@ class JobManager:
             )
 
     def _persist_job(self, job: Job):
-        """Salva lo stato del job su disco se paused/error."""
-        if job.state in (JobState.PAUSED, JobState.ERROR):
+        """Salva lo stato del job su disco se paused/error/cancelled/waiting_quota."""
+        if job.state in (JobState.PAUSED, JobState.ERROR, JobState.CANCELLED, JobState.WAITING_QUOTA):
             data = JobPersistence.serialize_job(job)
             self._persistence.save_job_state(data)
         elif job.state == JobState.COMPLETED:
             self._persistence.delete_job_state(job.job_id)
 
-    def create_job(self, file_name: str, file_path: Path) -> Job:
+    def create_job(self, file_name: str, file_path: Path, job_id: str | None = None) -> Job:
         """Crea un nuovo job e lo registra."""
-        job = Job(file_name, file_path)
+        job = Job(file_name, file_path, job_id)
 
         with self._lock:
             self._cleanup_old_jobs()
@@ -142,10 +148,26 @@ class JobManager:
 
     def update_state(self, job_id: str, state: JobState):
         """Aggiorna lo stato di un job."""
-        job = self.get_job(job_id)
-        if job:
-            job.state = state
-            logger.info("Job %s -> %s", job_id, state.value)
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job:
+                job.state = state
+                logger.info("Job %s -> %s", job_id, state.value)
+
+    def try_set_generating(self, job_id: str) -> bool:
+        """Imposta il job in stato GENERATING in modo atomico, prevenendo race conditions. Ritorna True se è stato possibile avviare la generazione."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return False
+            # Se è già in corso o completato/in revisione, non avviamo un nuovo task
+            if job.state in (JobState.PENDING, JobState.SPLITTING, JobState.GENERATING, JobState.MERGING, JobState.COMPLETED, JobState.REVIEW):
+                return False
+            
+            job.state = JobState.GENERATING
+            job.error_message = None
+            logger.info("Job %s -> %s (atomic start)", job_id, JobState.GENERATING.value)
+            return True
 
     def set_chunks_total(self, job_id: str, total: int):
         """Imposta il numero totale di chunk."""
@@ -189,6 +211,26 @@ class JobManager:
             job.error_message = message
             self._persist_job(job)
             logger.warning("Job %s in pausa: %s", job_id, message)
+
+    def set_cancelled(self, job_id: str, message: str):
+        """Segna il job come interrotto dall'utente."""
+        job = self.get_job(job_id)
+        if job:
+            job.state = JobState.CANCELLED
+            job.error_message = message
+            job.resume_at = None
+            self._persist_job(job)
+            logger.info("Job %s cancellato: %s", job_id, message)
+
+    def set_waiting_quota(self, job_id: str, resume_at: datetime, message: str):
+        """Segna il job in attesa del rinnovo quota."""
+        job = self.get_job(job_id)
+        if job:
+            job.state = JobState.WAITING_QUOTA
+            job.error_message = message
+            job.resume_at = resume_at
+            self._persist_job(job)
+            logger.warning("Job %s in attesa quota fino a %s: %s", job_id, resume_at.isoformat(), message)
 
     def set_generation_params(
         self,
@@ -235,7 +277,7 @@ class JobManager:
         expired = [
             jid for jid, job in self._jobs.items()
             if job.state in (
-                JobState.COMPLETED, JobState.ERROR, JobState.PAUSED,
+                JobState.COMPLETED, JobState.ERROR, JobState.PAUSED, JobState.CANCELLED, JobState.WAITING_QUOTA
             )
             and job.created_at < cutoff
         ]

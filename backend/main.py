@@ -75,3 +75,8 @@ async def startup_event():
         "🏛️  DaveTTS avviato su http://%s:%d",
         AppConfig.HOST, AppConfig.PORT,
     )
+
+    # Avvia watcher in background per quota limit
+    import asyncio
+    from backend.routers.tts_router import _quota_watcher_loop
+    asyncio.create_task(_quota_watcher_loop())

@@ -61,6 +61,9 @@ class GenerationController {
     }
 
     _startPolling() {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+        }
         this.pollingInterval = setInterval(
             () => this._pollStatus(),
             this.POLL_INTERVAL_MS
@@ -93,10 +96,10 @@ class GenerationController {
             } else if (status.state === 'review') {
                 this._stopPolling();
                 this._showReview();
-            } else if (status.state === 'error') {
+            } else if (status.state === 'error' || status.state === 'cancelled') {
                 this._stopPolling();
                 this._showError(
-                    status.error_message || 'Errore sconosciuto',
+                    status.error_message || 'Generazione interrotta',
                     status.is_resumable,
                 );
             }
@@ -121,6 +124,7 @@ class GenerationController {
             completed: '✅ Completato!',
             paused: '⏸️ In pausa — credito esaurito',
             error: '❌ Errore',
+            cancelled: '⏹️ Interrotto',
         };
 
         this.progressState.textContent =
@@ -137,6 +141,8 @@ class GenerationController {
         if (this.onComplete) {
             this.onComplete(this.currentJobId);
         }
+        document.getElementById('btnStopGeneration').classList.add('hidden');
+        document.getElementById('btnBackToStep2').classList.remove('hidden');
     }
 
     _showReview() {
@@ -146,6 +152,9 @@ class GenerationController {
 
         const previewAudio = document.getElementById('previewAudioPlayer');
         previewAudio.src = `/api/audio_preview/${this.currentJobId}?t=${new Date().getTime()}`;
+
+        document.getElementById('btnStopGeneration').classList.add('hidden');
+        document.getElementById('btnBackToStep2').classList.remove('hidden');
     }
 
     _showPaused(status) {
@@ -165,6 +174,9 @@ class GenerationController {
         if (this.onPaused) {
             this.onPaused(status.error_message);
         }
+
+        document.getElementById('btnStopGeneration').classList.add('hidden');
+        document.getElementById('btnBackToStep2').classList.remove('hidden');
     }
 
     _showError(message, isResumable = false) {
@@ -187,6 +199,9 @@ class GenerationController {
         if (this.onError) {
             this.onError(message);
         }
+
+        document.getElementById('btnStopGeneration').classList.add('hidden');
+        document.getElementById('btnBackToStep2').classList.remove('hidden');
     }
 
     async resumeGeneration() {
@@ -215,6 +230,23 @@ class GenerationController {
         }
     }
 
+    async cancelGeneration() {
+        if (!this.currentJobId) return;
+        
+        try {
+            const response = await fetch(`/api/cancel/${this.currentJobId}`, {
+                method: 'POST'
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error("Impossibile annullare:", errorData.detail);
+            }
+            // Il polling catturerà lo stato 'cancelled' al prossimo ciclo
+        } catch (error) {
+            console.error('Errore annullamento generazione:', error);
+        }
+    }
+
     _resetUI() {
         this.progressFill.style.width = '0%';
         this.progressPercent.textContent = '0%';
@@ -229,6 +261,9 @@ class GenerationController {
         if (previewContainer) {
             previewContainer.classList.add('hidden');
         }
+
+        document.getElementById('btnStopGeneration').classList.remove('hidden');
+        document.getElementById('btnBackToStep2').classList.add('hidden');
     }
 
     getJobId() {

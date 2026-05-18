@@ -59,6 +59,15 @@
                 </div>
             </div>
 
+            <div class="existing-files" id="existingFilesSection" style="margin-top: 1.5rem; text-align: center;">
+                <p style="margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">Oppure seleziona un file già caricato:</p>
+                <div class="select-wrapper" style="max-width: 400px; margin: 0 auto;">
+                    <select id="existingFilesSelect" class="select-input">
+                        <option value="">Caricamento file recenti...</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="file-info hidden" id="fileInfo">
                 <div class="info-card">
                     <div class="info-row">
@@ -97,6 +106,9 @@
             <div class="panel-header">
                 <h2>🎙️ Configura la voce</h2>
                 <p>Seleziona il provider, la voce e le opzioni audio</p>
+                <div id="resumeNotice" class="hidden" style="margin-top: 1rem; padding: 0.8rem; background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; border-radius: 4px; color: #60a5fa; font-size: 0.9rem;">
+                    ℹ️ <strong>File già elaborato:</strong> <span id="resumeText">0 / 0</span> chunk già generati per questo testo.
+                </div>
             </div>
 
             <div class="config-section">
@@ -244,6 +256,7 @@ You are reading a captivating audiobook. Your voice is the listener's guide thro
             </div>
 
             <div class="step-actions">
+                <button class="btn btn-danger hidden" id="btnStopGeneration">⏹️ Ferma Generazione</button>
                 <button class="btn btn-secondary hidden" id="btnBackToStep2">← Modifica impostazioni</button>
             </div>
         </section>
