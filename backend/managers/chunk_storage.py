@@ -26,6 +26,11 @@ class ChunkStorage:
         """Restituisce la directory dei chunk per un job."""
         return self.base_dir / job_id
 
+    def get_chunk_path(self, job_id: str, index: int) -> Path:
+        """Restituisce il percorso previsto per un file chunk."""
+        job_dir = self.get_job_dir(job_id)
+        return job_dir / self.CHUNK_PATTERN.format(index=index)
+
     def save_chunk(self, job_id: str, index: int, audio_bytes: bytes) -> Path:
         """
         Salva un singolo chunk audio su disco.

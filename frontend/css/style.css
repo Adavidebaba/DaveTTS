@@ -472,6 +472,43 @@ body::before {
     color: var(--text-primary);
 }
 
+.text-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--bg-glass);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    font-size: 0.9rem;
+    resize: vertical;
+    transition: border-color var(--transition-fast);
+}
+
+.text-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.prompt-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+
 .format-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

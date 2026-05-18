@@ -74,6 +74,8 @@ async def start_generation(
         language=request.language,
         output_format_id=request.output_format,
         provider=provider,
+        prompt_data=request.prompt_data.model_dump() if request.prompt_data else None,
+        preview_only=request.preview_only,
     )
 
     return {
@@ -94,7 +96,7 @@ async def resume_generation(
     if not job:
         raise HTTPException(status_code=404, detail="Job non trovato")
 
-    if job.state not in (JobState.PAUSED, JobState.ERROR):
+    if job.state not in (JobState.PAUSED, JobState.ERROR, JobState.REVIEW):
         raise HTTPException(
             status_code=400,
             detail=f"Il job è in stato '{job.state.value}', "
@@ -127,12 +129,34 @@ async def resume_generation(
     }
 
 
+from fastapi.responses import FileResponse
+
+@router.get("/audio_preview/{job_id}")
+async def get_audio_preview(job_id: str):
+    """Restituisce il file MP3 del primo chunk per l'anteprima."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job non trovato")
+    
+    chunk_path = chunk_storage.get_chunk_path(job_id, 0)
+    if not chunk_path.exists():
+        raise HTTPException(status_code=404, detail="Anteprima non trovata")
+        
+    return FileResponse(
+        chunk_path,
+        media_type="audio/mpeg",
+        filename=f"preview_{job_id}.mp3"
+    )
+
+
 async def _run_generation_pipeline(
     job: Job,
     voice_id: str,
     language: str,
     output_format_id: str,
     provider: str,
+    prompt_data: dict | None = None,
+    preview_only: bool = False,
 ):
     """Pipeline completa: split → TTS → merge."""
     tts_error_cls, credit_error_cls = get_error_classes(provider)
@@ -148,6 +172,7 @@ async def _run_generation_pipeline(
         job_manager.set_generation_params(
             job.job_id, voice_id, language,
             output_format_id, chunks, provider,
+            prompt_data,
         )
 
         logger.info(
@@ -170,6 +195,8 @@ async def _run_generation_pipeline(
             "voice_id": voice_id,
             "on_chunk_done": on_chunk_done,
         }
+        if prompt_data:
+            batch_kwargs["prompt_data"] = prompt_data
         if provider == "xai":
             output_format = OutputFormatCatalog.get(output_format_id)
             batch_kwargs["language"] = language
@@ -178,11 +205,17 @@ async def _run_generation_pipeline(
                 "sample_rate": output_format["sample_rate"],
                 "bit_rate": output_format["bit_rate"],
             }
+            
+        if preview_only:
+            batch_kwargs["chunks"] = chunks[:1]
 
         await tts_client.synthesize_batch(**batch_kwargs)
 
-        # FASE 3: Merge audio da disco
-        await _merge_and_complete(job)
+        if preview_only:
+            job_manager.update_state(job.job_id, JobState.REVIEW)
+        else:
+            # FASE 3: Merge audio da disco
+            await _merge_and_complete(job)
 
     except credit_error_cls:
         job_manager.set_paused(
@@ -243,6 +276,8 @@ async def _run_resume_pipeline(job: Job):
             "on_chunk_done": on_chunk_done,
             "skip_indices": completed,
         }
+        if job.prompt_data:
+            batch_kwargs["prompt_data"] = job.prompt_data
         if provider == "xai":
             output_format = OutputFormatCatalog.get(job.output_format_id)
             batch_kwargs["language"] = job.language

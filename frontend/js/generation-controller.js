@@ -23,20 +23,27 @@ class GenerationController {
         this.POLL_INTERVAL_MS = 2000;
     }
 
-    async startGeneration(fileId, voiceId, language, outputFormat, provider) {
+    async startGeneration(fileId, voiceId, language, outputFormat, provider, promptData = null, previewOnly = true) {
         this._resetUI();
 
         try {
+            const bodyData = {
+                file_id: fileId,
+                voice_id: voiceId,
+                language: language,
+                output_format: outputFormat,
+                provider: provider || 'gemini',
+            };
+            
+            if (promptData) {
+                bodyData.prompt_data = promptData;
+            }
+            bodyData.preview_only = previewOnly;
+
             const response = await fetch('/api/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    file_id: fileId,
-                    voice_id: voiceId,
-                    language: language,
-                    output_format: outputFormat,
-                    provider: provider || 'gemini',
-                }),
+                body: JSON.stringify(bodyData),
             });
 
             if (!response.ok) {
@@ -83,6 +90,9 @@ class GenerationController {
             } else if (status.state === 'paused') {
                 this._stopPolling();
                 this._showPaused(status);
+            } else if (status.state === 'review') {
+                this._stopPolling();
+                this._showReview();
             } else if (status.state === 'error') {
                 this._stopPolling();
                 this._showError(
@@ -127,6 +137,15 @@ class GenerationController {
         if (this.onComplete) {
             this.onComplete(this.currentJobId);
         }
+    }
+
+    _showReview() {
+        this.progressContainer.classList.add('hidden');
+        document.getElementById('previewContainer').classList.remove('hidden');
+        this.generationStatus.textContent = '🎧 Anteprima pronta';
+
+        const previewAudio = document.getElementById('previewAudioPlayer');
+        previewAudio.src = `/api/audio_preview/${this.currentJobId}?t=${new Date().getTime()}`;
     }
 
     _showPaused(status) {
@@ -205,6 +224,11 @@ class GenerationController {
         this.progressContainer.classList.remove('hidden');
         this.errorBox.classList.add('hidden');
         this.resultContainer.classList.add('hidden');
+        
+        const previewContainer = document.getElementById('previewContainer');
+        if (previewContainer) {
+            previewContainer.classList.add('hidden');
+        }
     }
 
     getJobId() {

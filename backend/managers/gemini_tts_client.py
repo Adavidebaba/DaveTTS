@@ -36,7 +36,7 @@ class GeminiCreditExhaustedError(GeminiTtsError):
 class GeminiTtsClient:
     """Client per l'API Google Gemini TTS con retry automatico."""
 
-    MAX_RETRIES = 3
+    MAX_RETRIES = 10
     RETRY_BACKOFF_BASE = 2.0
     PCM_SAMPLE_RATE = 24000
     PCM_CHANNELS = 1
@@ -78,11 +78,15 @@ class GeminiTtsClient:
         Sintetizza più chunk in parallelo con concorrenza limitata.
         Interfaccia compatibile con XaiTtsClient.
         """
-        concurrency = max_concurrent or AppConfig.MAX_CONCURRENT_REQUESTS
+        # Per Gemini riduciamo la concorrenza massima per evitare errori 429 (Rate Limit)
+        base_concurrency = max_concurrent or AppConfig.MAX_CONCURRENT_REQUESTS
+        concurrency = min(base_concurrency, 2) 
+        
         semaphore = asyncio.Semaphore(concurrency)
         results: list[Optional[bytes]] = [None] * len(chunks)
         skip = skip_indices or set()
         credit_error: Optional[GeminiCreditExhaustedError] = None
+        prompt_data = kwargs.get("prompt_data")
 
         async def _process_chunk(index: int, text: str):
             nonlocal credit_error
@@ -97,13 +101,21 @@ class GeminiTtsClient:
             if credit_error is not None:
                 return
 
+            # Costruisci il prompt se presente
+            if prompt_data:
+                formatted_text = self._format_prompt(text, prompt_data)
+            else:
+                formatted_text = text
+
             async with semaphore:
+                # Piccolo ritardo per scaglionare le richieste
+                await asyncio.sleep(index * 0.5)
                 logger.info(
-                    "Gemini TTS chunk %d/%d (%d caratteri)",
+                    "Gemini TTS chunk %d/%d (%d caratteri base)",
                     index + 1, len(chunks), len(text),
                 )
                 try:
-                    audio_bytes = await self.synthesize(text, voice_id)
+                    audio_bytes = await self.synthesize(formatted_text, voice_id)
                     results[index] = audio_bytes
 
                     if on_chunk_done:
@@ -112,7 +124,7 @@ class GeminiTtsClient:
                 except GeminiCreditExhaustedError as exc:
                     credit_error = exc
                     logger.warning(
-                        "Quota Gemini esaurita al chunk %d/%d",
+                        "Quota/Rate Limit Gemini esaurito al chunk %d/%d",
                         index + 1, len(chunks),
                     )
 
@@ -127,6 +139,22 @@ class GeminiTtsClient:
 
         return results
 
+    def _format_prompt(self, text: str, prompt_data: dict) -> str:
+        """Formatta il testo in un prompt avanzato per Gemini TTS."""
+        parts = []
+        if prompt_data.get("audioProfile"):
+            parts.append(prompt_data["audioProfile"])
+        if prompt_data.get("scene"):
+            parts.append(prompt_data["scene"])
+        if prompt_data.get("directorsNotes"):
+            parts.append(prompt_data["directorsNotes"])
+        if prompt_data.get("sampleContext"):
+            parts.append(prompt_data["sampleContext"])
+            
+        parts.append("#### TRANSCRIPT\n" + text)
+        
+        return "\n\n".join(parts)
+
     async def _request_with_retry(
         self, text: str, voice_id: str,
     ) -> bytes:
@@ -139,19 +167,32 @@ class GeminiTtsClient:
                 mp3_bytes = self._pcm_to_mp3(pcm_data)
                 return mp3_bytes
 
-            except GeminiCreditExhaustedError:
-                raise
-
             except Exception as exc:
                 last_error = exc
-                wait_time = self.RETRY_BACKOFF_BASE ** (attempt + 1)
+                error_str = str(exc)
+                
+                # Se è un errore di credito/budget permanente, interrompi subito senza retry
+                if "spending cap" in error_str.lower():
+                    raise GeminiCreditExhaustedError(error_str)
+                
+                # Cerca un delay specifico richiesto da Google per i rate limit temporanei
+                import re
+                match = re.search(r'Please retry in ([0-9.]+)s', error_str)
+                if match:
+                    wait_time = float(match.group(1)) + 2.0  # Aggiungi 2s di margine
+                else:
+                    wait_time = self.RETRY_BACKOFF_BASE ** (attempt + 1)
+                
                 logger.warning(
                     "Errore Gemini TTS (tentativo %d/%d): %s. "
                     "Retry in %.1fs",
                     attempt + 1, self.MAX_RETRIES,
-                    str(exc), wait_time,
+                    error_str, wait_time,
                 )
                 await asyncio.sleep(wait_time)
+
+        if isinstance(last_error, GeminiCreditExhaustedError):
+            raise last_error
 
         raise GeminiTtsError(
             f"Tutti i {self.MAX_RETRIES} tentativi falliti: {last_error}"
@@ -162,13 +203,27 @@ class GeminiTtsClient:
     ) -> bytes:
         """Chiama l'API Gemini TTS e ritorna i dati PCM."""
         try:
-            response = await asyncio.to_thread(
-                self._sync_generate, text, voice_id,
+            # Aggiungiamo un timeout di 600 secondi (10 minuti) per task lunghi ma evitando blocchi eterni
+            response = await asyncio.wait_for(
+                asyncio.to_thread(self._sync_generate, text, voice_id),
+                timeout=600.0
             )
 
-            part = response.candidates[0].content.parts[0]
+            if not response.candidates:
+                raise GeminiTtsError(f"Risposta vuota da Gemini (forse bloccato dai filtri di sicurezza). Dettagli: {response}")
+
+            content = response.candidates[0].content
+            if not content or not content.parts:
+                raise GeminiTtsError(f"Contenuto audio mancante nella risposta. Dettagli: {response}")
+
+            part = content.parts[0]
+            if not part.inline_data:
+                raise GeminiTtsError(f"Nessun dato audio (inline_data) restituito. Dettagli: {response}")
+
             return part.inline_data.data
 
+        except asyncio.TimeoutError:
+            raise GeminiTtsError("La richiesta a Gemini è andata in timeout (600s)")
         except Exception as exc:
             error_msg = str(exc).lower()
             if "quota" in error_msg or "429" in error_msg:
@@ -182,6 +237,24 @@ class GeminiTtsClient:
             contents=text,
             config=types.GenerateContentConfig(
                 response_modalities=["AUDIO"],
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                ],
                 speech_config=types.SpeechConfig(
                     voice_config=types.VoiceConfig(
                         prebuilt_voice_config=types.PrebuiltVoiceConfig(

@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/style.css?v=1.1">
 </head>
 <body>
     <!-- Header -->
@@ -106,8 +106,39 @@
                 </div>
             </div>
 
-            <div class="voice-grid" id="voiceGrid">
-                <!-- Populated by JS -->
+            <div class="config-section">
+                <h3>🗣️ Voce</h3>
+                <div class="voice-grid" id="voiceGrid">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <div class="config-section" id="promptSection">
+                <h3>📝 Prompt Audiobook (Gemini)</h3>
+                <div class="prompt-grid">
+                    <div class="form-group">
+                        <label for="audioProfileInput">Audio Profile</label>
+                        <textarea id="audioProfileInput" class="text-input" rows="2"># AUDIO PROFILE: Charon
+## "The Storyteller"</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="sceneInput">Scene</label>
+                        <textarea id="sceneInput" class="text-input" rows="3">## THE SCENE: The Cozy Library
+A quiet, comfortable room with warm lighting, filled with books. The atmosphere is calm, immersive, and perfect for storytelling. The listener should feel entirely relaxed and engaged.</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="directorsNotesInput">Director's Notes</label>
+                        <textarea id="directorsNotesInput" class="text-input" rows="5">### DIRECTOR'S NOTES
+Style: Deep, calm, immersive, and narrative. The delivery must be steady and captivating, drawing the listener into the story. The tone should feel like a premium audiobook experience.
+Pace: Measured and unhurried. Use slight pauses to build anticipation and let the words resonate.
+Accent: Clear, neutral, and highly articulate, focusing on emotion and clarity.</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="sampleContextInput">Sample Context</label>
+                        <textarea id="sampleContextInput" class="text-input" rows="2">### SAMPLE CONTEXT
+You are reading a captivating audiobook. Your voice is the listener's guide through the world of the book, bringing the text to life.</textarea>
+                    </div>
+                </div>
             </div>
 
             <div class="config-section" id="languageSection">
@@ -138,7 +169,7 @@
 
             <div class="step-actions">
                 <button class="btn btn-secondary" id="btnBackToStep1">← Indietro</button>
-                <button class="btn btn-primary" id="btnToStep3">Genera Audiolibro →</button>
+                <button class="btn btn-primary" id="btnToStep3">Ascolta Anteprima (1° Chunk) →</button>
             </div>
         </section>
 
@@ -193,8 +224,27 @@
                 </div>
             </div>
 
+            <!-- Preview (shown when in REVIEW state) -->
+            <div class="result-container hidden" id="previewContainer">
+                <div class="result-icon">🎧</div>
+                <h3>Anteprima 1° Chunk pronta</h3>
+                <p>Ascolta l'anteprima per verificare la qualità della voce e del prompt.</p>
+
+                <div class="audio-player-wrapper">
+                    <audio controls id="previewAudioPlayer" class="audio-player">
+                        Il tuo browser non supporta l'elemento audio.
+                    </audio>
+                </div>
+
+                <div class="result-actions">
+                    <button class="btn btn-primary btn-large" id="btnConfirmGeneration">
+                        ▶️ Genera tutto l'audiolibro
+                    </button>
+                </div>
+            </div>
+
             <div class="step-actions">
-                <button class="btn btn-secondary hidden" id="btnBackToStep2">← Indietro</button>
+                <button class="btn btn-secondary hidden" id="btnBackToStep2">← Modifica impostazioni</button>
             </div>
         </section>
 
@@ -216,9 +266,9 @@
         </div>
     </div>
 
-    <script src="/js/upload-handler.js"></script>
-    <script src="/js/generation-controller.js"></script>
-    <script src="/js/audio-player.js"></script>
-    <script src="/js/app.js"></script>
+    <script src="/js/upload-handler.js?v=1.1"></script>
+    <script src="/js/generation-controller.js?v=1.1"></script>
+    <script src="/js/audio-player.js?v=1.1"></script>
+    <script src="/js/app.js?v=1.1"></script>
 </body>
 </html>

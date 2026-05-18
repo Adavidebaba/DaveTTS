@@ -40,6 +40,7 @@ class Job:
         self.output_format_id: str = ""
         self.text_chunks: list[str] = []
         self.provider: str = "gemini"
+        self.prompt_data: dict | None = None
 
     @property
     def is_resumable(self) -> bool:
@@ -98,6 +99,7 @@ class JobManager:
             job.output_format_id = fields["output_format_id"]
             job.text_chunks = fields["text_chunks"]
             job.provider = fields["provider"]
+            job.prompt_data = fields.get("prompt_data")
 
             if fields["created_at"]:
                 try:
@@ -196,6 +198,7 @@ class JobManager:
         output_format_id: str,
         text_chunks: list[str],
         provider: str = "gemini",
+        prompt_data: dict | None = None,
     ):
         """Salva i parametri di generazione per la ripresa."""
         job = self.get_job(job_id)
@@ -205,6 +208,7 @@ class JobManager:
             job.output_format_id = output_format_id
             job.text_chunks = text_chunks
             job.provider = provider
+            job.prompt_data = prompt_data
 
     def mark_chunk_done(self, job_id: str, chunk_index: int):
         """Registra un chunk come completato."""

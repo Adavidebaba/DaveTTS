@@ -62,10 +62,10 @@ class AppConfig:
 
     # Costi per 1M caratteri in USD
     PRICE_PER_1M_CHARS_XAI: float = 15.00
-    PRICE_PER_1M_CHARS_GEMINI: float = 0.00  # Free tier Gemini
+    PRICE_PER_1M_CHARS_GEMINI: float = 20.00  # Free tier Gemini
 
     # Limiti testo
-    MAX_CHUNK_SIZE: int = 10_000  # Margine sicurezza vs limite API
+    MAX_CHUNK_SIZE: int = 1_000  # Limite ridotto a 1k caratteri per Gemini (limite 4096 output tokens)
     MAX_UPLOAD_SIZE_MB: int = 10
 
     # Parallelismo API

@@ -17,6 +17,7 @@ class JobState(str, Enum):
     COMPLETED = "completed"
     PAUSED = "paused"
     ERROR = "error"
+    REVIEW = "review"
 
 
 class OutputFormatRequest(BaseModel):
@@ -24,6 +25,14 @@ class OutputFormatRequest(BaseModel):
     codec: str = "mp3"
     sample_rate: int = 44100
     bit_rate: int = 128000
+
+
+class PromptData(BaseModel):
+    """Dati di prompt opzionali (usati da Gemini TTS)."""
+    audioProfile: str = ""
+    scene: str = ""
+    directorsNotes: str = ""
+    sampleContext: str = ""
 
 
 class GenerateRequest(BaseModel):
@@ -39,7 +48,14 @@ class GenerateRequest(BaseModel):
         default="gemini",
         description="Provider TTS: gemini o xai"
     )
-
+    prompt_data: PromptData | None = Field(
+        default=None,
+        description="Dati prompt aggiuntivi (profilo audio, scena, etc.)"
+    )
+    preview_only: bool = Field(
+        default=False,
+        description="Se True, genera solo il primo chunk e attende conferma"
+    )
 
 class ChunkStatus(BaseModel):
     """Stato di un singolo chunk."""

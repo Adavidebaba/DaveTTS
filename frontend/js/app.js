@@ -50,8 +50,11 @@ class App {
         const voices = this.config?.voices || {};
         const voiceIds = Object.keys(voices);
         if (voiceIds.length > 0) {
-            // Seleziona la prima voce come default
-            this.selectedVoice = voiceIds[0];
+            if (voiceIds.includes('Charon')) {
+                this.selectedVoice = 'Charon';
+            } else {
+                this.selectedVoice = voiceIds[0];
+            }
         }
     }
 
@@ -122,13 +125,14 @@ class App {
 
     _updateLanguageVisibility() {
         const langSection = document.getElementById('languageSection');
-        if (langSection) {
-            // Gemini fa auto-detect, la lingua serve solo per xAI
-            if (this.selectedProvider === 'gemini') {
-                langSection.classList.add('hidden');
-            } else {
-                langSection.classList.remove('hidden');
-            }
+        const promptSection = document.getElementById('promptSection');
+        
+        if (this.selectedProvider === 'gemini') {
+            if (langSection) langSection.classList.add('hidden');
+            if (promptSection) promptSection.classList.remove('hidden');
+        } else {
+            if (langSection) langSection.classList.remove('hidden');
+            if (promptSection) promptSection.classList.add('hidden');
         }
     }
 
@@ -223,6 +227,11 @@ class App {
             this.generationController.resumeGeneration();
         });
 
+        // Conferma generazione dopo anteprima
+        document.getElementById('btnConfirmGeneration')?.addEventListener('click', () => {
+            this.generationController.resumeGeneration();
+        });
+
         // Modal close
         document.getElementById('btnCloseModal').addEventListener('click', () => {
             document.getElementById('apiKeyWarning').classList.add('hidden');
@@ -267,6 +276,12 @@ class App {
         }
 
         const language = document.getElementById('languageSelect').value;
+        const promptData = {
+            audioProfile: document.getElementById('audioProfileInput')?.value || '',
+            scene: document.getElementById('sceneInput')?.value || '',
+            directorsNotes: document.getElementById('directorsNotesInput')?.value || '',
+            sampleContext: document.getElementById('sampleContextInput')?.value || ''
+        };
 
         this._goToStep(3);
 
@@ -279,6 +294,8 @@ class App {
             language,
             this.selectedFormat,
             this.selectedProvider,
+            promptData,
+            true // previewOnly sempre true dal form iniziale
         );
     }
 
