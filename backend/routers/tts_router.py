@@ -76,13 +76,25 @@ async def start_generation(
             }
         
         # Se il job esiste ma è in pausa/errore/cancellato, riprendiamolo automaticamente
-        if job.state in (JobState.PAUSED, JobState.ERROR, JobState.CANCELLED):
-            logger.info("Job %s esistente in stato %s. Ripresa automatica.", job_id, job.state.value)
+        if job.state in (JobState.PAUSED, JobState.ERROR, JobState.CANCELLED, JobState.WAITING_QUOTA):
+            logger.info("Job %s esistente in stato %s. Aggiornamento parametri e ripresa.", job_id, job.state.value)
+            
+            # Aggiorna i parametri con quelli nuovi inviati dal frontend
+            job_manager.set_generation_params(
+                job_id=job_id,
+                voice_id=request.voice_id,
+                language=request.language,
+                output_format_id=request.output_format,
+                text_chunks=job.text_chunks,
+                provider=provider,
+                prompt_data=request.prompt_data.model_dump() if request.prompt_data else None,
+            )
+
             if job_manager.try_set_generating(job_id):
                 background_tasks.add_task(_run_resume_pipeline, job=job)
             return {
                 "job_id": job.job_id,
-                "message": "Generazione ripresa automaticamente",
+                "message": "Generazione ripresa con i nuovi parametri",
             }
 
     # Crea nuovo job

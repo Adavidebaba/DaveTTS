@@ -160,8 +160,8 @@ class JobManager:
             job = self._jobs.get(job_id)
             if not job:
                 return False
-            # Se è già in corso o completato/in revisione, non avviamo un nuovo task
-            if job.state in (JobState.PENDING, JobState.SPLITTING, JobState.GENERATING, JobState.MERGING, JobState.COMPLETED, JobState.REVIEW):
+            # Se è già in corso o completato, non avviamo un nuovo task
+            if job.state in (JobState.PENDING, JobState.SPLITTING, JobState.GENERATING, JobState.MERGING, JobState.COMPLETED):
                 return False
             
             job.state = JobState.GENERATING
