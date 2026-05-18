@@ -257,7 +257,7 @@ async def _run_generation_pipeline(
             "on_chunk_done": on_chunk_done,
             "check_cancelled": check_cancelled,
         }
-        if prompt_data:
+        if prompt_data and provider == "gemini":
             batch_kwargs["prompt_data"] = prompt_data
         if provider == "xai":
             output_format = OutputFormatCatalog.get(output_format_id)
@@ -355,7 +355,7 @@ async def _run_resume_pipeline(job: Job):
             "skip_indices": completed,
             "check_cancelled": check_cancelled,
         }
-        if job.prompt_data:
+        if job.prompt_data and provider == "gemini":
             batch_kwargs["prompt_data"] = job.prompt_data
         if provider == "xai":
             output_format = OutputFormatCatalog.get(job.output_format_id)
